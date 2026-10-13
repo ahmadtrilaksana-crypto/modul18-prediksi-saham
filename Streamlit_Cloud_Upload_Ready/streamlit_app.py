@@ -16,6 +16,7 @@ from core.screener import run_market_screener
 from core.portfolio import (
     load_portfolio, add_position, delete_position, evaluate_active_portfolio
 )
+from core.auth_portal import check_authentication, render_auth_sidebar
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
@@ -101,8 +102,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- UNIFIED CLOUD AUTHENTICATION & TELEGRAM GATE ---
+check_authentication("Modul 18: Quantitative Stock Price Prediction & Dynamic Screener Suite")
+
 # ----------------- SIDEBAR KONTROL -----------------
 with st.sidebar:
+    render_auth_sidebar()
     st.image("https://fonts.gstatic.com/s/e/notoemoji/latest/1f4c8/512.webp", width=55)
     st.title("Trilaksana Suite")
     st.caption("Modul 18: Executive Decision Engine")
