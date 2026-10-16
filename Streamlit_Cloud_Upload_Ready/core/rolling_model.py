@@ -11,12 +11,35 @@ from sklearn.metrics import accuracy_score
 
 from core.indicators import calculate_technical_features, get_feature_columns
 
+def round_to_idx_tick(price: float) -> int:
+    """
+    Membulatkan harga sesuai fraksi resmi bursa BEI (IDX Tick Size):
+    - Harga < Rp 200: kelipatan Rp 1
+    - Harga Rp 200 s/d < Rp 500: kelipatan Rp 2
+    - Harga Rp 500 s/d < Rp 2.000: kelipatan Rp 5
+    - Harga Rp 2.000 s/d < Rp 5.000: kelipatan Rp 10
+    - Harga >= Rp 5.000: kelipatan Rp 25
+    """
+    if price is None or price <= 0:
+        return 0
+    p = float(price)
+    if p < 200:
+        return int(round(p / 1.0) * 1)
+    elif p < 500:
+        return int(round(p / 2.0) * 2)
+    elif p < 2000:
+        return int(round(p / 5.0) * 5)
+    elif p < 5000:
+        return int(round(p / 10.0) * 10)
+    else:
+        return int(round(p / 25.0) * 25)
+
 class DynamicStockPredictor:
     """
-    Mesin Prediksi Saham Kuantitatif dengan Rolling Window Dinamis.
-    Secara otomatis bergeser dan memperbarui bobot model setiap ada data baru.
+    Mesin Prediksi Saham Kuantitatif dengan Rolling Window Dinamis (Short-Term Adaptive).
+    Secara otomatis bergeser dan memperbarui bobot model setiap ada data baru (default 500 hari bursa ~ 2 tahun).
     """
-    def __init__(self, window_size: int = 2500):
+    def __init__(self, window_size: int = 500):
         self.window_size = window_size
         self.feature_cols = get_feature_columns()
         self.scaler = StandardScaler()
@@ -57,38 +80,50 @@ class DynamicStockPredictor:
         if len(train_data) > self.window_size:
             train_data = train_data.iloc[-self.window_size:]
 
-        if len(train_data) < 200:
-            raise ValueError(f"Data historis tidak mencukupi (minimal 200 hari, tersedia {len(train_data)} hari)")
+        if len(train_data) < 150:
+            raise ValueError(f"Data historis tidak mencukupi (minimal 150 hari, tersedia {len(train_data)} hari)")
 
         X_train = train_data[self.feature_cols].values
-        y_train = train_data["Target_Direction"].values
+        y_train_1d = train_data["Target_Direction"].values
+        # Target 5-Day Swing Direction jika tersedia di DataFrame
+        y_train_5d = train_data["Target_5d_Direction"].values if "Target_5d_Direction" in train_data.columns else y_train_1d
 
         # Scaling fitur
         X_train_scaled = self.scaler.fit_transform(X_train)
         today_scaled = self.scaler.transform(today_features.values)
 
-        # Latih Ensemble Models
-        self.rf_model.fit(X_train_scaled, y_train)
-        self.gb_model.fit(X_train_scaled, y_train)
+        # Latih Ensemble Models: RF fokus ke arah momentum mikro (T+1), GB fokus ke arah trend swing (T+5)
+        self.rf_model.fit(X_train_scaled, y_train_1d)
+        self.gb_model.fit(X_train_scaled, y_train_5d)
 
-        # Prediksi Probabilitas Besok: Rata-rata dari RF dan GB
-        prob_rf = self.rf_model.predict_proba(today_scaled)[0][1] # Probabilitas kelas 1 (Naik)
-        prob_gb = self.gb_model.predict_proba(today_scaled)[0][1]
-        win_probability = (prob_rf * 0.55 + prob_gb * 0.45) * 100.0
+        # Prediksi Probabilitas: Komposit Harmonisasi (T+1 Micro Momentum 40% + T+5 Swing Direction 60%)
+        prob_rf = self.rf_model.predict_proba(today_scaled)[0][1] # Probabilitas kelas 1 (T+1)
+        prob_gb = self.gb_model.predict_proba(today_scaled)[0][1] # Probabilitas kelas 1 (T+5)
+        win_probability = (prob_rf * 0.40 + prob_gb * 0.60) * 100.0
 
         # Estimasi Volatilitas & Rentang Target Harga Besok
         latest_close = float(today_row["Close"])
         latest_atr = float(today_row["ATR_14"]) if not np.isnan(today_row["ATR_14"]) else latest_close * 0.02
+        today_return = float(today_row.get("Return_1d", 0.0))
         
         # Proyeksi rentang harga besok
         expected_drift = ((win_probability - 50.0) / 50.0) * (latest_atr * 0.5)
-        expected_close_tomorrow = latest_close + expected_drift
-        projected_high = max(expected_close_tomorrow + latest_atr * 0.6, latest_close * 1.005)
-        projected_low = min(expected_close_tomorrow - latest_atr * 0.6, latest_close * 0.995)
+        expected_close_tomorrow = round_to_idx_tick(latest_close + expected_drift)
+        projected_high = round_to_idx_tick(max(expected_close_tomorrow + latest_atr * 0.6, latest_close * 1.005))
+        projected_low = round_to_idx_tick(min(expected_close_tomorrow - latest_atr * 0.6, latest_close * 0.995))
 
-        # Hitung Stop Loss dan Take Profit Berbasis Rasio Risk/Reward 1 : 2
-        stop_loss = latest_close - (latest_atr * 1.2)
-        take_profit = latest_close + (latest_atr * 2.4)
+        # PILAR 1: Plafon Batas Risiko Maksimal (Institutional Risk Cap)
+        # Menghindari kasus Stop Loss terlalu dalam (seperti -11% pada saham liar)
+        # Toleransi Stop Loss dibatasi maksimal 5.5% dan minimal 2.0% dari harga masuk
+        raw_sl_distance = latest_atr * 1.2
+        max_sl_distance = latest_close * 0.055  # Plafon SL maksimal 5.5%
+        min_sl_distance = latest_close * 0.020  # Minimum SL 2.0% agar tahan noise
+        final_sl_dist = max(min(raw_sl_distance, max_sl_distance), min_sl_distance)
+
+        stop_loss = round_to_idx_tick(latest_close - final_sl_dist)
+        actual_risk = latest_close - stop_loss
+        # Target Take Profit terkunci tepat 2x jarak risiko aktual (Rasio Risk/Reward 1 : 2.0)
+        take_profit = round_to_idx_tick(latest_close + (actual_risk * 2.0))
 
         # Feature Importance (Faktor Penggerak Utama)
         importances = self.rf_model.feature_importances_
@@ -99,36 +134,58 @@ class DynamicStockPredictor:
 
         top_drivers = feat_imp_df.head(4)["Fitur"].tolist()
 
-        # Rekomendasi Sinyal
-        if win_probability >= 63.0:
-            signal = "STRONG BUY"
-            signal_color = "#22c55e" # Hijau Cerah
+        # PILAR 2: Filter Anti-Pisau Jatuh (Anti-Falling Knife Filter)
+        # Jika hari ini harga sedang anjlok tajam (<= -3.0%), jangan langsung beri STRONG BUY
+        is_falling_knife = today_return <= -0.030
+
+        # Rekomendasi Sinyal (Spesifikasi Kalibrasi Dr. Ahmad Raymond)
+        if win_probability >= 55.0:
+            if is_falling_knife:
+                signal = "SPECULATIVE BUY / WAIT REVERSAL"
+                signal_color = "#f59e0b" # Oranye (Peringatan Pisau Jatuh)
+            else:
+                signal = "STRONG BUY"
+                signal_color = "#22c55e" # Hijau Cerah
         elif win_probability >= 53.0:
-            signal = "BUY"
-            signal_color = "#38bdf8" # Biru Langit
-        elif win_probability >= 47.0:
+            signal = "SPECULATIVE BUY / CICIL"
+            signal_color = "#f59e0b" # Kuning / Oranye
+        elif win_probability >= 50.0:
             signal = "HOLD / NEUTRAL"
-            signal_color = "#a1a1aa" # Abu-abu
-        elif win_probability >= 38.0:
-            signal = "SELL / REDUCE"
-            signal_color = "#fb923c" # Oranye
+            signal_color = "#94a3b8" # Abu-abu Netral
         else:
-            signal = "STRONG AVOID"
-            signal_color = "#ef4444" # Merah
+            signal = "AVOID / WAIT & SEE"
+            signal_color = "#ef4444" # Merah Proteksi Modal
+
+        # PILAR 3: Estimasi Durasi Tunggu Dinamis (First-Passage Time Stochastic Model)
+        # Berbasis Teori Hit Time Brownian Motion: E[T] = Target_TP / Expected_Daily_Drift (mu_d)
+        target_tp_pct = ((take_profit - latest_close) / latest_close) * 100.0 if latest_close > 0 else 5.0
+        tp_pct = abs(float(target_tp_pct))
+        if tp_pct < 1.0:
+            tp_pct = tp_pct * 100.0
+
+        daily_drift_pct = ((expected_close_tomorrow - latest_close) / latest_close) * 100.0 if latest_close > 0 else 1.0
+        # Pengaman analitis: drift terarah minimal 0.8% per hari untuk saham yang lolos saringan beli
+        mu_d = max(0.8, daily_drift_pct)
+
+        calculated_days = int(round(tp_pct / mu_d))
+        max_holding_days = max(3, min(15, calculated_days))
 
         return {
             "latest_date": df_feat.index[-1].strftime("%d-%m-%Y"),
-            "current_price": latest_close,
+            "current_price": round_to_idx_tick(latest_close),
             "win_probability": round(win_probability, 1),
             "signal": signal,
             "signal_color": signal_color,
-            "projected_close": round(expected_close_tomorrow, 1),
-            "projected_range": (round(projected_low, 1), round(projected_high, 1)),
-            "suggested_tp": round(take_profit, 1),
-            "suggested_sl": round(stop_loss, 1),
+            "projected_close": float(expected_close_tomorrow),
+            "projected_range": (float(projected_low), float(projected_high)),
+            "suggested_tp": float(take_profit),
+            "suggested_sl": float(stop_loss),
             "atr_volatility": round(latest_atr, 1),
             "training_samples": len(train_data),
-            "top_drivers": top_drivers
+            "top_drivers": top_drivers,
+            "max_holding_days": max_holding_days,
+            "horizon_days": f"Maks. {max_holding_days} Hari Bursa",
+            "is_falling_knife": is_falling_knife
         }
 
     def walk_forward_backtest(self, df_feat: pd.DataFrame, test_days: int = 60) -> dict:
@@ -181,4 +238,43 @@ class DynamicStockPredictor:
             "actuals": actuals,
             "preds": preds,
             "prices": prices
+        }
+
+def calculate_injury_time(entry_price: float, current_price: float, tp_price: float, atr_val: float) -> dict:
+    """
+    Menghitung kalkulasi Tambahan Waktu Matematis (Injury Time Wasit)
+    berdasarkan sisa jarak menuju target TP dan kecepatan laju harian (ATR).
+    """
+    if entry_price <= 0 or current_price <= 0 or tp_price <= 0:
+        return {"injury_days": 0, "status": "EXPIRED", "reason": "Data harga tidak valid"}
+
+    current_gain_pct = ((current_price - entry_price) / entry_price) * 100.0
+    target_tp_pct = ((tp_price - entry_price) / entry_price) * 100.0
+    sisa_jarak_pct = target_tp_pct - current_gain_pct
+
+    atr_pct = (float(atr_val) / float(current_price)) * 100.0 if current_price > 0 else 2.0
+    if atr_pct <= 0:
+        atr_pct = 2.0
+    kecepatan_harian = max(1.0, atr_pct * 0.50)
+
+    # Syarat Injury Time (Wasit Sepak Bola):
+    # 1. Posisi saat ini sedang profit (>= +3.0%)
+    # 2. Sisa jarak ke TP tinggal sedikit (0 < sisa jarak <= 4.5%)
+    if current_gain_pct >= 3.0 and 0 < sisa_jarak_pct <= 4.5:
+        calculated_days = int(round(sisa_jarak_pct / kecepatan_harian))
+        injury_days = max(1, min(3, calculated_days)) # Maksimal 1 s/d 3 hari
+        return {
+            "injury_days": injury_days,
+            "status": "INJURY_TIME_GRANTED",
+            "current_gain_pct": round(current_gain_pct, 2),
+            "sisa_jarak_pct": round(sisa_jarak_pct, 2),
+            "reason": f"Sedang berlari kencang (+{current_gain_pct:.1f}%), sisa jarak ke TP tinggal {sisa_jarak_pct:.1f}%"
+        }
+    else:
+        return {
+            "injury_days": 0,
+            "status": "WHISTLE_BLOWN",
+            "current_gain_pct": round(current_gain_pct, 2),
+            "sisa_jarak_pct": round(sisa_jarak_pct, 2),
+            "reason": "Momentum habis / tidak memenuhi syarat tambahan waktu"
         }
