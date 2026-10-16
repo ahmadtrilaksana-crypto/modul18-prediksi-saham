@@ -73,6 +73,10 @@ def calculate_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     data["Target_Return"] = data["Close"].shift(-1) / data["Close"] - 1.0
     data["Target_Direction"] = (data["Target_Return"] > 0).astype(int)
 
+    # 9. Target Swing Horizon 5 Hari (Forward 5-Day Swing Direction untuk Tiket Auto-Order)
+    data["Target_5d_Return"] = data["Close"].shift(-5) / data["Close"] - 1.0
+    data["Target_5d_Direction"] = (data["Target_5d_Return"] > 0).astype(int)
+
     return data
 
 def get_feature_columns() -> list:
