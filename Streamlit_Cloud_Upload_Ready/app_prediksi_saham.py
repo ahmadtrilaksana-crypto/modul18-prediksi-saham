@@ -81,6 +81,11 @@ try:
 except ImportError:
     from auth_portal import check_authentication, render_auth_sidebar
 
+try:
+    from core.theory_doc import render_theory_tab
+except ImportError:
+    from theory_doc import render_theory_tab
+
 # =============================================================
 # CENTRAL CLOUD LICENSING GATE v107
 # =============================================================
@@ -229,11 +234,12 @@ with st.spinner(f"Memindai {len(active_watchlist)} saham semesta bursa dengan je
 # =============================================================
 # STRUKTUR TAB EKSEKUTIF
 # =============================================================
-tab_radar, tab_portfolio, tab_deepdive, tab_all = st.tabs([
+tab_radar, tab_portfolio, tab_deepdive, tab_all, tab_theory = st.tabs([
     "🎯 Radar Keputusan Eksekutif",
     "💼 Portofolio Pribadi & Alarm Jual",
     "🔬 Analisis Saham Individual & Backtest",
-    "📋 Peringkat Seluruh Watchlist"
+    "📋 Peringkat Seluruh Watchlist",
+    "📖 Metodologi & Dasar Teori"
 ])
 
 # -------------------------------------------------------------
@@ -696,6 +702,12 @@ with tab_all:
         ]
         cols_present = [c for c in display_cols if c in df_screener.columns]
         st.dataframe(df_screener[cols_present], use_container_width=True, height=450)
+
+# -------------------------------------------------------------
+# TAB 5: METODOLOGI & DASAR TEORI LENGKAP
+# -------------------------------------------------------------
+with tab_theory:
+    render_theory_tab()
 
 # Footer
 st.markdown("---")
