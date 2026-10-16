@@ -55,10 +55,10 @@ def delete_position(position_id: str) -> bool:
     save_portfolio(updated)
     return True
 
-def evaluate_active_portfolio(years: int = 2) -> pd.DataFrame:
+def evaluate_active_portfolio(years: int = 2, fee_buy_pct: float = 0.0, fee_sell_pct: float = 0.0) -> pd.DataFrame:
     """
     Mengevaluasi setiap saham di portofolio dengan data harga terbaru & model AI:
-    - Menghitung Floating Profit/Loss (Rp & %)
+    - Menghitung Floating Profit/Loss (Rp & %) dengan opsi simulasi komisi broker & levy bursa
     - Menghitung Hari Kepemilikan & Hitung Mundur Waktu Normal
     - Menghitung Tambahan Waktu (Injury Time) matematis jika sedang kencang menuju target
     - Menghasilkan Rekomendasi Aksi: AMANKAN CUAN (TP), TAHAN (HOLD), INJURY TIME, atau CUT-LOSS / EXIT.
@@ -76,7 +76,9 @@ def evaluate_active_portfolio(years: int = 2) -> pd.DataFrame:
         buy_p = float(item["buy_price"])
         lots = int(item.get("lots", 10))
         shares = lots * 100
-        total_invested = buy_p * shares
+        total_invested_gross = buy_p * shares
+        # Modal riil termasuk komisi beli sekuritas (jika diaktifkan)
+        total_invested = round(total_invested_gross * (1.0 + (fee_buy_pct / 100.0)))
         buy_date_str = item.get("buy_date", today_dt.strftime("%Y-%m-%d"))
 
         try:
@@ -96,7 +98,11 @@ def evaluate_active_portfolio(years: int = 2) -> pd.DataFrame:
             # Hitung Nilai Sekarang & Floating PnL
             current_val = current_p * shares
             floating_pnl_rp = current_val - total_invested
-            floating_pnl_pct = round(((current_p - buy_p) / buy_p) * 100, 2)
+            floating_pnl_pct = round(((current_val - total_invested) / total_invested) * 100, 2)
+
+            # Estimasi likuidasi bersih jika dijual hari ini (dipotong fee jual + PPh)
+            net_sell_val = round(current_val * (1.0 - (fee_sell_pct / 100.0))) if fee_sell_pct > 0.0 else current_val
+            net_liquidate_pnl = net_sell_val - total_invested
 
             win_prob = pred["win_probability"]
             tp_p = round_to_idx_tick(pred["suggested_tp"])
@@ -153,10 +159,15 @@ def evaluate_active_portfolio(years: int = 2) -> pd.DataFrame:
                 "Harga Beli (Rp)": buy_p,
                 "Jumlah Lot": lots,
                 "Total Modal (Rp)": total_invested,
+                "Modal Pokok (Rp)": total_invested_gross,
                 "Harga Sekarang (Rp)": current_p,
                 "Nilai Sekarang (Rp)": current_val,
+                "Nilai Bersih Jual (Rp)": net_sell_val,
                 "Untung/Rugi (Rp)": floating_pnl_rp,
                 "Untung/Rugi (%)": floating_pnl_pct,
+                "Untung/Rugi Bersih Jual (Rp)": net_liquidate_pnl,
+                "Fee Beli (%)": fee_buy_pct,
+                "Fee Jual (%)": fee_sell_pct,
                 "Probabilitas Besok (%)": win_prob,
                 "Target TP (Rp)": tp_p,
                 "Batas SL (Rp)": sl_p,
