@@ -1,241 +1,424 @@
 """
-The Trilaksana Suite — Modul 18: Quantitative Stock Prediction & Executive Decision Engine
-Dashboard Cerdas Prediksi Saham Harian, Sinyal Strong Buy Terpadu, dan Rekomendasi Jual (Take Profit).
+app_private_saham.py — Terminal Eksekutif Saham Privat Dr. Ahmad Raymond
+Subdomain Resmi: saham.trilaksanamining.my.id
+The Trilaksana Framework — Private Quantitative Stock Decision Engine
+
+Author: Dr. Ir. Ahmad Raymond Trilaksana, S.T., M.Ak., IPM, ASEAN Eng.
+Platform: Cloudflare SSL + Central Cloud Licensing + Telegram Bot
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from datetime import datetime
 
-from core.data_fetcher import DEFAULT_WATCHLISTS, fetch_stock_data, get_latest_price_summary, normalize_ticker
-from core.indicators import calculate_technical_features
-from core.rolling_model import DynamicStockPredictor
-from core.screener import run_market_screener
-from core.portfolio import (
-    load_portfolio, add_position, delete_position, evaluate_active_portfolio
-)
-from core.auth_portal import check_authentication, render_auth_sidebar
-
-# Konfigurasi Halaman Streamlit
+# Konfigurasi Halaman Utama
 st.set_page_config(
-    page_title="Modul 18: Trilaksana Stock Executive Radar",
+    page_title="Trilaksana Stock Terminal • saham.trilaksanamining.my.id",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Kustomisasi CSS Modern ala Trilaksana Dark Theme
+# Impor Modul Internal dengan Fallback Cerdas
+try:
+    from core.data_fetcher import (
+        DEFAULT_WATCHLISTS,
+        fetch_stock_data,
+        get_latest_price_summary,
+        normalize_ticker
+    )
+except ImportError:
+    from data_fetcher import (
+        DEFAULT_WATCHLISTS,
+        fetch_stock_data,
+        get_latest_price_summary,
+        normalize_ticker
+    )
+
+try:
+    from core.rolling_model import DynamicStockPredictor, round_to_idx_tick
+except ImportError:
+    from rolling_model import DynamicStockPredictor, round_to_idx_tick
+
+try:
+    from core.screener import run_market_screener
+except ImportError:
+    from screener import run_market_screener
+
+try:
+    from core.portfolio import (
+        load_portfolio,
+        add_position,
+        delete_position,
+        evaluate_active_portfolio
+    )
+except ImportError:
+    from portfolio import (
+        load_portfolio,
+        add_position,
+        delete_position,
+        evaluate_active_portfolio
+    )
+
+try:
+    from core.telegram_notifier import scan_and_notify_radar, scan_and_notify_portfolio
+except ImportError:
+    from telegram_notifier import scan_and_notify_radar, scan_and_notify_portfolio
+
+try:
+    from core.email_notifier import send_executive_email
+except ImportError:
+    try:
+        from email_notifier import send_executive_email
+    except ImportError:
+        def send_executive_email(*args, **kwargs):
+            return {"status": "warning", "message": "Modul email notifier belum siap."}
+
+try:
+    from core.auth_portal import check_authentication, render_auth_sidebar
+except ImportError:
+    from auth_portal import check_authentication, render_auth_sidebar
+
+# =============================================================
+# CENTRAL CLOUD LICENSING GATE v107
+# =============================================================
+check_authentication("Modul 18: Quantitative Stock Price Prediction & Dynamic Screener Suite")
+
+# =============================================================
+# GAYA VISUAL PREMIUM (DARK EXECUTIVE THEME)
+# =============================================================
 st.markdown("""
 <style>
-    .reportview-container {
-        background: #090d16;
+    .main { background-color: #0b0f19; }
+    .stApp { background-color: #0b0f19; color: #f8fafc; }
+    
+    .exec-header {
+        background: linear-gradient(135deg, #090d16 0%, #1e1b4b 50%, #0f172a 100%);
+        padding: 24px 28px;
+        border-radius: 16px;
+        border: 1px solid #3b82f6;
+        margin-bottom: 22px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
     }
+    
     .metric-card {
         background: #111827;
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        border: 1px solid #1f2937;
         border-radius: 12px;
-        padding: 20px 22px;
+        padding: 16px 20px;
         margin-bottom: 15px;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.45);
     }
-    .metric-label {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: #94a3b8;
-        font-family: monospace;
-    }
-    .metric-value {
-        font-size: 26px;
-        font-weight: 700;
-        color: #ffffff;
-        margin-top: 4px;
-    }
+    
+    .metric-label { font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 700; letter-spacing: 1px; }
+    .metric-val { font-size: 24px; font-weight: 800; color: #ffffff; margin-top: 4px; }
+    
     .strong-card {
-        background: linear-gradient(135deg, rgba(34, 197, 94, 0.12) 0%, #111827 100%);
-        border: 1.5px solid #22c55e;
-        border-radius: 12px;
-        padding: 22px;
-        margin-bottom: 16px;
-        box-shadow: 0 4px 20px rgba(34, 197, 94, 0.15);
+        background: linear-gradient(135deg, #064e3b 0%, #022c22 100%);
+        border: 1px solid #059669;
+        border-radius: 14px;
+        padding: 20px 24px;
+        margin-bottom: 18px;
+        box-shadow: 0 8px 25px rgba(5, 150, 105, 0.2);
     }
+
+    .speculative-card {
+        background: linear-gradient(135deg, #451a03 0%, #1c1917 100%);
+        border: 1px solid #d97706;
+        border-radius: 14px;
+        padding: 20px 24px;
+        margin-bottom: 18px;
+        box-shadow: 0 8px 25px rgba(217, 119, 6, 0.2);
+    }
+    
     .wait-box {
-        background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, #18181b 100%);
-        border: 1.5px solid #ef4444;
-        border-radius: 12px;
-        padding: 24px;
-        margin: 20px 0;
+        background: linear-gradient(135deg, #450a0a 0%, #1c1917 100%);
+        border: 1px solid #b91c1c;
+        border-radius: 14px;
+        padding: 28px;
         text-align: center;
+        margin-bottom: 20px;
     }
-    .badge-action-tp {
-        background-color: rgba(34, 197, 94, 0.25);
-        color: #22c55e;
-        border: 1px solid #22c55e;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-weight: 800;
-        font-size: 13px;
-        display: inline-block;
-    }
-    .badge-action-sl {
-        background-color: rgba(239, 68, 68, 0.25);
-        color: #ef4444;
-        border: 1px solid #ef4444;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-weight: 800;
-        font-size: 13px;
-        display: inline-block;
-    }
-    .badge-action-hold {
-        background-color: rgba(56, 189, 248, 0.2);
-        color: #38bdf8;
-        border: 1px solid #38bdf8;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-weight: 800;
-        font-size: 13px;
-        display: inline-block;
-    }
+    
+    .badge-action-tp { background: #059669; color: #ffffff; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 12px; }
+    .badge-action-spec { background: #d97706; color: #ffffff; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 12px; }
+    .badge-action-sl { background: #dc2626; color: #ffffff; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 12px; }
+    .badge-action-hold { background: #2563eb; color: #ffffff; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- UNIFIED CLOUD AUTHENTICATION & TELEGRAM GATE ---
-check_authentication("Modul 18: Quantitative Stock Price Prediction & Dynamic Screener Suite")
+# =============================================================
+# SIDEBAR KONTROL & PARAMETER EKSEKUTIF
+# =============================================================
+render_auth_sidebar()
 
-# ----------------- SIDEBAR KONTROL -----------------
-with st.sidebar:
-    render_auth_sidebar()
-    st.image("https://fonts.gstatic.com/s/e/notoemoji/latest/1f4c8/512.webp", width=55)
-    st.title("Trilaksana Suite")
-    st.caption("Modul 18: Executive Decision Engine")
-    st.markdown("---")
-
-    sector_choice = st.selectbox(
-        "Pilih Sektor / Watchlist:",
-        ["Semua Gabungan", "Komoditas & Tambang", "Perbankan (Big Banks)", "Konglomerasi & Konsumer", "Kustom Sendiri"],
-        index=0
-    )
-
-    if sector_choice == "Semua Gabungan":
-        active_watchlist = []
-        for lst in DEFAULT_WATCHLISTS.values():
-            active_watchlist.extend(lst)
-    elif sector_choice == "Kustom Sendiri":
-        custom_input = st.text_input("Masukkan Ticker (pisahkan koma):", "ANTM.JK, BBCA.JK, INCO.JK, PTBA.JK")
-        symbols = [s.strip().upper() for s in custom_input.split(",") if s.strip()]
-        active_watchlist = [(normalize_ticker(s), s) for s in symbols]
-    else:
-        active_watchlist = DEFAULT_WATCHLISTS[sector_choice]
-
-    years_window = st.slider("Jendela Rolling Historis (Tahun):", min_value=3, max_value=10, value=10, step=1)
-    
-    st.markdown("---")
-    min_prob_threshold = st.slider("Ambang Batas Strong Buy (%):", min_value=40, max_value=75, value=60, step=1)
-    
-    st.markdown("---")
-    force_update = st.button("🔄 Update Data & Re-train Model", use_container_width=True)
-    
-    st.markdown("---")
-    st.caption("💡 **Prinsip Rolling-Window**: Setiap hari bursa baru masuk, data paling lampau otomatis dibuang dan bobot model diperbarui.")
-
-# ----------------- HEADER UTAMA -----------------
-st.title("📈 Modul 18: Trilaksana Executive Stock Radar")
-st.markdown(
-    "Sistem Pengambilan Keputusan Investasi Saham Berbasis **Machine Learning Dinamis (Rolling Window 10 Tahun)** "
-    "— Memberikan Rekomendasi **Beli (Strong Buy Saja)**, Target Persentase Cuan, dan Alarm **Kapan Harus Jual (Take Profit / Cut-Loss)**."
+st.sidebar.markdown("### ⚙️ Parameter Radar Eksekutif")
+selected_sector = st.sidebar.selectbox(
+    "Pilih Sektor Pantau:",
+    ["Semua Gabungan"] + list(DEFAULT_WATCHLISTS.keys()),
+    index=0
 )
-st.markdown("---")
 
-# Mengambil / Memperbarui Data Screener
-screener_key = f"screener_{sector_choice}_{years_window}"
-if force_update or screener_key not in st.session_state:
-    with st.spinner("Memindai data 10 tahun & menghitung probabilitas model untuk seluruh watchlist..."):
-        prog_bar = st.progress(0.0)
-        status_lbl = st.empty()
-        
-        def screener_cb(curr, total, msg):
-            prog_bar.progress(curr / total)
-            status_lbl.text(msg)
-            
-        df_screener = run_market_screener(active_watchlist, years=years_window, progress_callback=screener_cb, force_refresh=force_update)
-        prog_bar.empty()
-        status_lbl.empty()
-        st.session_state[screener_key] = df_screener
+years_window = st.sidebar.slider(
+    "Jendela Rolling Historis (Tahun):",
+    min_value=1, max_value=10, value=2, step=1,
+    help="Standar eksekutif adaptif 2 tahun (500 hari bursa dinamis) untuk menangkap tren modern tanpa noise masa lalu."
+)
+
+min_prob_threshold = st.sidebar.slider(
+    "Ambang Batas Strong Buy (%):",
+    min_value=40, max_value=75, value=55, step=1,
+    help="Standar ambang batas optimal 55.0% untuk menyaring saham dengan keyakinan model dominan."
+)
+
+min_rr_threshold = st.sidebar.slider(
+    "Minimal Risk/Reward Ratio:",
+    min_value=1.0, max_value=3.0, value=1.5, step=0.1,
+    help="Potensi Take Profit wajib minimal 1.5x lebih besar dari Stop Loss."
+)
+
+st.sidebar.markdown("---")
+force_update = st.sidebar.button("🔄 Perbarui Data Bursa & Model", use_container_width=True)
+
+# =============================================================
+# HEADER TERMINAL UTAMA
+# =============================================================
+st.markdown("""
+<div class="exec-header">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <div style="display:inline-block; padding:4px 14px; background:rgba(59,130,246,0.2); border:1px solid #3b82f6; border-radius:20px; color:#60a5fa; font-size:11px; font-weight:800; letter-spacing:1px; margin-bottom:8px;">
+                THE TRILAKSANA SUITE &bull; MODUL 18
+            </div>
+            <h1 style="color:#ffffff; font-size:26px; font-weight:800; margin:0 0 6px 0;">
+                The Trilaksana Suite — Executive Stock Terminal
+            </h1>
+            <div style="color:#94a3b8; font-size:14px;">
+                Sistem Intelijen Kuantitatif, Radar Sinyal Beli, & Portofolio Analitik Dr. Ir. Ahmad Raymond Trilaksana
+            </div>
+        </div>
+        <div style="text-align:right;">
+            <div style="font-size:12px; color:#60a5fa; font-weight:700;">🌐 CENTRAL CLOUD LICENSING</div>
+            <div style="font-size:12px; color:#22c55e; font-weight:700;">⚡ QUANTITATIVE ML ENGINE</div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Susun Daftar Saham Sesuai Sektor
+if selected_sector == "Semua Gabungan":
+    active_watchlist = []
+    seen = set()
+    for grp in DEFAULT_WATCHLISTS.values():
+        for s, n in grp:
+            if s not in seen:
+                active_watchlist.append((s, n))
+                seen.add(s)
 else:
-    df_screener = st.session_state[screener_key]
+    active_watchlist = DEFAULT_WATCHLISTS.get(selected_sector, [])
 
-# ----------------- TABS UTAMA -----------------
-tab_pilot, tab_portofolio, tab_screener, tab_detail = st.tabs([
-    "🎯 Executive Radar (Pilot Otomatis)",
-    "💼 Portofolio & Rekomendasi Jual (Take Profit)",
-    "📋 Seluruh Pasar & Tabel Peringkat",
-    "📈 Analisis Candlestick & Backtest"
+# Jalankan Screener di Latar Belakang
+@st.cache_data(ttl=900, show_spinner=False)
+def get_market_screener_cached(sector_name, years, refresh_flag):
+    return run_market_screener(active_watchlist, years=years, force_refresh=refresh_flag)
+
+with st.spinner(f"Memindai {len(active_watchlist)} saham semesta bursa dengan jendela rolling {years_window} tahun..."):
+    df_screener = get_market_screener_cached(selected_sector, years_window, force_update)
+
+# =============================================================
+# STRUKTUR TAB EKSEKUTIF
+# =============================================================
+tab_radar, tab_portfolio, tab_deepdive, tab_all = st.tabs([
+    "🎯 Radar Keputusan Eksekutif",
+    "💼 Portofolio Pribadi & Alarm Jual",
+    "🔬 Analisis Saham Individual & Backtest",
+    "📋 Peringkat Seluruh Watchlist"
 ])
 
 # -------------------------------------------------------------
-# TAB 1: EXECUTIVE RADAR (PILOT OTOMATIS)
+# TAB 1: RADAR KEPUTUSAN EKSEKUTIF (STRONG BUY >= 55%)
 # -------------------------------------------------------------
-with tab_pilot:
-    st.subheader("🎯 Radar Keputusan Eksekutif: Saham Pilihan Layak Beli Hari Ini")
-    st.caption(rf"Hanya menyaring saham dengan keyakinan model kuat (Probabilitas Kenaikan $\ge {min_prob_threshold}\%$) dan Risk/Reward rasional.")
+with tab_radar:
+    col_rad_h, col_rad_b = st.columns([3, 1.4])
+    with col_rad_h:
+        st.subheader("🎯 Radar Keputusan Eksekutif: Saham Layak Beli Hari Ini")
+        st.caption(rf"Menyaring saham dengan keyakinan model kuat ($\ge {min_prob_threshold}\%$) dan Risk/Reward $\ge {min_rr_threshold}$.")
+    with col_rad_b:
+        if st.button("🔄 Perbarui Analisis Radar", key="btn_refresh_radar", type="primary", use_container_width=True):
+            st.rerun()
 
     if not df_screener.empty:
-        # Filter saham yang memenuhi ambang batas Strong Buy
-        df_strong = df_screener[df_screener["Probabilitas Naik (%)"] >= float(min_prob_threshold)].copy()
+        # Render Banner Audit Metodologi Ilmiah (Data Funnel)
+        attrs = getattr(df_screener, "attrs", {})
+        tot_scanned = attrs.get("total_scanned", len(active_watchlist))
+        pass_liq = attrs.get("passed_liquidity", len(df_screener))
+        fail_liq = attrs.get("failed_liquidity", tot_scanned - pass_liq)
+        win_years = attrs.get("years_window", years_window)
+
+        f1, f2, f3, f4 = st.columns(4)
+        f1.metric("Semesta Pantau (Universe)", f"{tot_scanned} Emiten", "Cakupan BEI")
+        f2.metric("Lolos Likuiditas (>= Rp 5M)", f"{pass_liq} Emiten", f"{fail_liq} Gugur (Sepi)")
+        f3.metric("Jendela Model Rolling", f"{win_years} Tahun", f"{win_years * 250} Hari Bursa")
+        f4.metric("Ambang Batas Beli (COG)", f">={min_prob_threshold:.1f}%", f"Min R/R {min_rr_threshold}")
+        st.markdown("---")
+
+        # Ticker Lockout: Saring emiten yang sedang berstatus HOLDING di portofolio agar tidak muncul sebagai rekomendasi beli baru
+        held_tickers = set()
+        try:
+            raw_portfolio = load_portfolio()
+            for pos_item in raw_portfolio:
+                if pos_item.get("status", "HOLDING").upper() == "HOLDING":
+                    held_tickers.add(pos_item["symbol"])
+        except Exception:
+            pass
+
+        df_fresh = df_screener[~df_screener["Ticker"].isin(held_tickers)].copy() if held_tickers else df_screener.copy()
+
+        if held_tickers:
+            st.info(f"🔒 **Ticker Lockout Aktif**: {len(held_tickers)} emiten yang sedang ada di portofolio Anda ({', '.join(sorted(held_tickers))}) disaring agar tidak muncul dobel di rekomendasi beli baru.")
+
+        # Filter Kandidat Sesuai Logika 3-Tier
+        rr_mask = df_fresh["RR_Ratio"] >= float(min_rr_threshold) if "RR_Ratio" in df_fresh.columns else True
+        df_strong = df_fresh[
+            (df_fresh["Probabilitas Naik (%)"] >= float(min_prob_threshold)) &
+            rr_mask
+        ].copy()
+
+        df_spec = df_fresh[
+            (df_fresh["Probabilitas Naik (%)"] >= 53.0) &
+            (df_fresh["Probabilitas Naik (%)"] < float(min_prob_threshold)) &
+            rr_mask
+        ].copy()
 
         if not df_strong.empty:
-            st.success(f"Ditemukan **{len(df_strong)} Saham Unggulan** yang memenuhi kriteria Strong Buy hari ini!")
+            st.success(f"Ditemukan **{len(df_strong)} Saham Unggulan** yang memenuhi kriteria Strong Buy!")
+            for _, row in df_strong.iterrows():
+                curr_p = int(row['Harga Terakhir (Rp)'])
+                tp_p = int(row.get('Take Profit / TP (Rp)', curr_p * 1.05))
+                sl_p = int(row.get('Stop Loss / SL (Rp)', curr_p * 0.95))
+                est_p = int(row.get('Target Besok (Rp)', curr_p))
+                modal_1lot = int(row.get('Modal 1 Lot (Rp)', curr_p * 100))
+                pct_est = float(row.get('Estimasi Kenaikan Besok (%)', 0.0))
+                pct_tp = round(((tp_p - curr_p) / curr_p) * 100, 1) if curr_p > 0 else 0.0
+                pct_sl = round(((sl_p - curr_p) / curr_p) * 100, 1) if curr_p > 0 else 0.0
+                max_d = int(row.get('Max_Days', 5))
+                recom_label = str(row.get('Rekomendasi', 'STRONG BUY'))
+                is_spec = "SPECULATIVE" in recom_label or "REVERSAL" in recom_label or "CICIL" in recom_label
+                card_class = "speculative-card" if is_spec else "strong-card"
+                badge_class = "badge-action-spec" if is_spec else "badge-action-tp"
+                guide_border = "#d97706" if is_spec else "#059669"
+                guide_color = "#fcd34d" if is_spec else "#6ee7b7"
 
-            for idx, row in df_strong.iterrows():
-                with st.container():
-                    st.markdown(f"""
-                    <div class="strong-card">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                            <div>
-                                <span style="font-size:24px; font-weight:800; color:#ffffff;">{row['Ticker']}</span>
-                                <span style="font-size:16px; color:#94a3b8; margin-left:10px;">{row['Nama Emiten']}</span>
-                            </div>
-                            <span class="badge-action-tp" style="font-size:14px;">REKOMENDASI: {row['Rekomendasi']}</span>
-                        </div>
-                        <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; margin-top:15px;">
-                            <div>
-                                <div class="metric-label">Harga Hari Ini</div>
-                                <div style="font-size:20px; font-weight:700; color:#ffffff;">Rp {row['Harga Terakhir (Rp)']:,.0f}</div>
-                                <small style="color:{'#22c55e' if row['Perubahan (%)'] >= 0 else '#ef4444'};">{row['Perubahan (%)']:+.2f}% hari ini</small>
-                            </div>
-                            <div>
-                                <div class="metric-label">Keyakinan Model Besok</div>
-                                <div style="font-size:20px; font-weight:700; color:#22c55e;">{row['Probabilitas Naik (%)']:.1f}%</div>
-                                <small style="color:#22c55e;">Estimasi: +{row['Estimasi Kenaikan Besok (%)']:.2f}% (Rp {row['Target Besok (Rp)']:,.0f})</small>
-                            </div>
-                            <div>
-                                <div class="metric-label">Target Amankan Cuan (TP)</div>
-                                <div style="font-size:20px; font-weight:700; color:#38bdf8;">+{row['Potensi TP (%)']:.1f}%</div>
-                                <small style="color:#38bdf8;">Jual di Rp {row['Take Profit / TP (Rp)']:,.0f}</small>
-                            </div>
-                            <div>
-                                <div class="metric-label">Batas Disiplin Cut-Loss (SL)</div>
-                                <div style="font-size:20px; font-weight:700; color:#ef4444;">{row['Batas SL (%)']:.1f}%</div>
-                                <small style="color:#ef4444;">Jual jika turun ke Rp {row['Stop Loss / SL (Rp)']:,.0f}</small>
-                            </div>
-                        </div>
-                        <div style="margin-top:15px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:12px; color:#94a3b8;">
-                            🔑 <b>Faktor Penggerak Utama:</b> {row['Faktor Kunci']} &nbsp;|&nbsp; ⚖️ <b>Risk/Reward Ratio:</b> {row['Risk/Reward']}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                strong_card_html = f"""<div class="{card_class}">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+<div>
+<span style="font-size:24px; font-weight:800; color:#ffffff;">{row['Ticker']}</span>
+<span style="font-size:16px; color:#cbd5e1; margin-left:10px;">{row['Nama Emiten']}</span>
+</div>
+<span class="{badge_class}" style="font-size:14px;">REKOMENDASI: {recom_label}</span>
+</div>
+<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; margin-top:15px;">
+<div>
+<div class="metric-label">Harga Masuk (Buy)</div>
+<div style="font-size:20px; font-weight:700; color:#ffffff;">Rp {curr_p:,.0f}</div>
+<small style="color:{'#22c55e' if row['Perubahan (%)'] >= 0 else '#ef4444'};">{row['Perubahan (%)']:+.2f}% hari ini</small>
+<div style="color:#38bdf8; font-size:12px; font-weight:700; margin-top:4px;">💼 Modal 1 Lot: Rp {modal_1lot:,.0f}</div>
+</div>
+<div>
+<div class="metric-label">Probabilitas Naik</div>
+<div style="font-size:20px; font-weight:700; color:#22c55e;">{row['Probabilitas Naik (%)']:.1f}%</div>
+<small style="color:#22c55e;">Estimasi Besok: Rp {est_p:,.0f} ({pct_est:+.2f}%)</small>
+</div>
+<div>
+<div class="metric-label">Target Take Profit (TP)</div>
+<div style="font-size:20px; font-weight:700; color:#38bdf8;">Rp {tp_p:,.0f} (+{pct_tp}%)</div>
+<small style="color:#38bdf8;">Amankan cuan (BEI tick)</small>
+</div>
+<div>
+<div class="metric-label">Batas Stop Loss (SL)</div>
+<div style="font-size:20px; font-weight:700; color:#ef4444;">Rp {sl_p:,.0f} ({pct_sl}%)</div>
+<small style="color:#ef4444;">Disiplin risiko (BEI tick)</small>
+</div>
+</div>
+<div style="margin-top:14px; background:rgba(0,0,0,0.35); border:1px solid {guide_border}; border-radius:8px; padding:12px 16px;">
+<b style="color:{guide_color}; font-size:13px;">📝 Panduan Input Auto-Order Stockbit (⏱️ Horizon: Maks. {max_d} Hari Bursa):</b>
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-top:6px; font-size:12px;">
+<div>• <b>Harga Beli (Buy):</b> <span style="color:#ffffff;">Rp {curr_p:,.0f}</span> (1 Lot: Rp {modal_1lot:,.0f})</div>
+<div>• <b>Set Take Profit (TP):</b> <span style="color:#38bdf8; font-weight:700;">Rp {tp_p:,.0f}</span> (+{pct_tp}%)</div>
+<div>• <b>Set Stop Loss (SL):</b> <span style="color:#ef4444; font-weight:700;">Rp {sl_p:,.0f}</span> ({pct_sl}%)</div>
+</div>
+</div>
+<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1); font-size:12px; color:#cbd5e1;">
+🔑 <b>Faktor Penggerak:</b> {row.get('Faktor Kunci', 'Momentum & Akumulasi')} &nbsp;|&nbsp; ⚖️ <b>Risk/Reward:</b> {row.get('Risk/Reward', '1 : 2.0')}
+</div>
+</div>"""
+                st.markdown(strong_card_html, unsafe_allow_html=True)
+
+            if not df_spec.empty:
+                st.markdown("#### 🟡 Saham Pilihan Alternatif: Speculative Buy / Cicil (53.0% - 54.9%)")
+                for _, row in df_spec.iterrows():
+                    curr_p = int(row['Harga Terakhir (Rp)'])
+                    tp_p = int(row.get('Take Profit / TP (Rp)', curr_p * 1.05))
+                    sl_p = int(row.get('Stop Loss / SL (Rp)', curr_p * 0.95))
+                    est_p = int(row.get('Target Besok (Rp)', curr_p))
+                    modal_1lot = int(row.get('Modal 1 Lot (Rp)', curr_p * 100))
+                    pct_est = float(row.get('Estimasi Kenaikan Besok (%)', 0.0))
+                    pct_tp = round(((tp_p - curr_p) / curr_p) * 100, 1) if curr_p > 0 else 0.0
+                    pct_sl = round(((sl_p - curr_p) / curr_p) * 100, 1) if curr_p > 0 else 0.0
+                    max_d_spec = int(row.get('Max_Days', 5))
+
+                    spec_card_html = f"""<div class="speculative-card">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+<div>
+<span style="font-size:22px; font-weight:800; color:#ffffff;">{row['Ticker']}</span>
+<span style="font-size:15px; color:#cbd5e1; margin-left:10px;">{row['Nama Emiten']}</span>
+</div>
+<span class="badge-action-spec" style="font-size:13px;">REKOMENDASI: SPECULATIVE BUY / CICIL</span>
+</div>
+<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; margin-top:12px;">
+<div>
+<div class="metric-label">Harga Hari Ini</div>
+<div style="font-size:18px; font-weight:700; color:#ffffff;">Rp {curr_p:,.0f}</div>
+<small style="color:{'#22c55e' if row['Perubahan (%)'] >= 0 else '#ef4444'};">{row['Perubahan (%)']:+.2f}% hari ini</small>
+<div style="color:#f59e0b; font-size:11px; font-weight:700; margin-top:3px;">💼 Modal 1 Lot: Rp {modal_1lot:,.0f}</div>
+</div>
+<div>
+<div class="metric-label">Probabilitas Naik</div>
+<div style="font-size:18px; font-weight:700; color:#f59e0b;">{row['Probabilitas Naik (%)']:.1f}%</div>
+<small style="color:#f59e0b;">Estimasi Besok: Rp {est_p:,.0f} ({pct_est:+.2f}%)</small>
+</div>
+<div>
+<div class="metric-label">Target Take Profit</div>
+<div style="font-size:18px; font-weight:700; color:#38bdf8;">Rp {tp_p:,.0f} (+{pct_tp}%)</div>
+</div>
+<div>
+<div class="metric-label">Batas Stop Loss</div>
+<div style="font-size:18px; font-weight:700; color:#ef4444;">Rp {sl_p:,.0f} ({pct_sl}%)</div>
+</div>
+</div>
+<div style="margin-top:12px; background:rgba(0,0,0,0.35); border:1px solid #d97706; border-radius:8px; padding:10px 14px;">
+<b style="color:#fcd34d; font-size:12px;">📝 Panduan Input Auto-Order Stockbit (⏱️ Horizon: Maks. {max_d_spec} Hari Bursa):</b>
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:8px; margin-top:4px; font-size:11px;">
+<div>• <b>Harga Beli (Buy):</b> <span style="color:#ffffff;">Rp {curr_p:,.0f}</span> (1 Lot: Rp {modal_1lot:,.0f})</div>
+<div>• <b>Set Take Profit (TP):</b> <span style="color:#38bdf8; font-weight:700;">Rp {tp_p:,.0f}</span> (+{pct_tp}%)</div>
+<div>• <b>Set Stop Loss (SL):</b> <span style="color:#ef4444; font-weight:700;">Rp {sl_p:,.0f}</span> ({pct_sl}%)</div>
+</div>
+</div>
+<div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.1); font-size:12px; color:#cbd5e1;">
+🔑 <b>Faktor Penggerak:</b> {row.get('Faktor Kunci', 'Konsolidasi & Akumulasi')} &nbsp;|&nbsp; ⚖️ <b>Risk/Reward:</b> {row.get('Risk/Reward', '1 : 2.0')}
+</div>
+</div>"""
+                    st.markdown(spec_card_html, unsafe_allow_html=True)
         else:
-            # Banner Proteksi Uang Tunai saat Bursa Merah / Tidak Ada yang Strong
-            highest_row = df_screener.iloc[0]
+            # Banner Proteksi Uang Tunai
+            highest_row = df_fresh.iloc[0] if not df_fresh.empty else df_screener.iloc[0]
             st.markdown(f"""
             <div class="wait-box">
                 <div style="font-size:36px; margin-bottom:10px;">🛑</div>
                 <h2 style="color:#ef4444; margin:0 0 10px 0;">STATUS BURSA: WAIT & SEE (AMANKAN DANA TUNAI)</h2>
                 <p style="color:#e4e4e7; font-size:16px; max-width:750px; margin:0 auto 15px auto; line-height:1.6;">
-                    Seluruh saham di watchlist saat ini berada di bawah ambang batas aman <b>({min_prob_threshold}%)</b>. 
+                    Seluruh saham di watchlist saat ini berada di bawah ambang batas aman <b>({min_prob_threshold:.1f}%)</b>. 
                     Pasar sedang dalam tekanan jual atau tren konsolidasi yang rawan koreksi lanjutan.
                 </p>
                 <div style="background:rgba(0,0,0,0.3); border-radius:8px; padding:12px 18px; display:inline-block; margin-bottom:15px;">
@@ -247,45 +430,68 @@ with tab_pilot:
                 </p>
             </div>
             """, unsafe_allow_html=True)
+
+            # Tampilkan Top 3 Radar Terdekat (Watchlist Siaga) di UI
+            st.markdown("### 📊 Top 3 Radar Terdekat (Watchlist Siaga)")
+            st.caption("Saham-saham berikut memiliki skor probabilitas tertinggi hari ini yang paling mendekati ambang batas Cut-Off Grade (COG):")
+            
+            top3_candidates = df_fresh.head(3) if not df_fresh.empty else df_screener.head(3)
+            col_t1, col_t2, col_t3 = st.columns(3)
+            cols_ui = [col_t1, col_t2, col_t3]
+
+            for idx_ui, (_, row_t) in enumerate(top3_candidates.iterrows()):
+                if idx_ui < len(cols_ui):
+                    with cols_ui[idx_ui]:
+                        p_curr = int(row_t['Harga Terakhir (Rp)'])
+                        m_lot = int(row_t.get('Modal 1 Lot (Rp)', p_curr * 100))
+                        p_tp = int(row_t.get('Take Profit / TP (Rp)', p_curr * 1.05))
+                        p_sl = int(row_t.get('Stop Loss / SL (Rp)', p_curr * 0.95))
+                        recom_color = "#f59e0b" if "SPECULATIVE" in row_t['Rekomendasi'] else "#94a3b8"
+
+                        st.markdown(f"""
+                        <div class="metric-card" style="border-top:3px solid {recom_color};">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <b style="font-size:20px; color:#ffffff;">{row_t['Ticker']}</b>
+                                <span style="font-size:11px; padding:3px 8px; border-radius:12px; background:rgba(255,255,255,0.1); color:{recom_color}; font-weight:700;">
+                                    {row_t['Rekomendasi']}
+                                </span>
+                            </div>
+                            <div style="font-size:12px; color:#94a3b8; margin-bottom:8px;">{row_t['Nama Emiten']}</div>
+                            <div style="font-size:24px; font-weight:800; color:{recom_color};">
+                                {row_t['Probabilitas Naik (%)']:.1f}%
+                            </div>
+                            <div style="font-size:12px; color:#cbd5e1; margin-top:6px;">
+                                💵 <b>Harga:</b> Rp {p_curr:,.0f} ({row_t['Perubahan (%)']:+.2f}%)<br>
+                                💼 <b>Modal 1 Lot:</b> <span style="color:#38bdf8; font-weight:700;">Rp {m_lot:,.0f}</span><br>
+                                ⚖️ <b>R/R:</b> {row_t.get('Risk/Reward', '1 : 1.5')}<br>
+                                🎯 <b>TP:</b> Rp {p_tp:,.0f} | 🛡️ <b>SL:</b> Rp {p_sl:,.0f}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
     else:
-        st.warning("Data pasar belum tersedia. Silakan tekan tombol 'Update Data & Re-train Model' di bilah kiri.")
+        st.warning("Data pasar belum tersedia.")
 
 # -------------------------------------------------------------
-# TAB 2: PORTOFOLIO & REKOMENDASI JUAL (TAKE PROFIT)
+# TAB 2: PORTOFOLIO PRIBADI & REAL-TIME TRACKING
 # -------------------------------------------------------------
-with tab_portofolio:
-    st.subheader("💼 Portofolio Aktif: Pantauan Posisi & Alarm Rekomendasi Jual")
-    st.markdown(
-        "Catat saham yang sudah Bapak beli di sini. Setiap sore/pagi, sistem akan otomatis memeriksa apakah sudah waktunya "
-        "**AMANKAN CUAN (JUAL)** atau **DISIPLIN CUT-LOSS** untuk mengunci keuntungan selisih harga."
-    )
+with tab_portfolio:
+    st.subheader("💼 Portofolio Pribadi & Alarm Keputusan Jual (TP / SL)")
+    st.markdown("Catat posisi saham riil Bapak di sini. Portofolio ini terisolasi secara privat dan aman.")
 
     col_add, col_mon = st.columns([1, 2.2])
 
     with col_add:
-        st.markdown("#### ➕ Catat Pembelian Saham")
-        st.caption("Pilih saham dari dropdown, harga pasar saat ini akan terisi otomatis.")
-
-        # Susun daftar seluruh saham unik dari watchlist
-        all_stocks = []
-        seen_syms = set()
-        for group in DEFAULT_WATCHLISTS.values():
-            for sym, name in group:
-                if sym not in seen_syms:
-                    all_stocks.append((sym, name))
-                    seen_syms.add(sym)
-
-        stock_options = all_stocks + [("CUSTOM", "[Kustom] Masukkan Kode Ticker Lain...")]
-
+        st.markdown("#### ➕ Catat Pembelian Saham Riil")
+        stock_options = active_watchlist + [("CUSTOM", "[Kustom] Kode Saham Lain...")]
         selected_stock = st.selectbox(
-            "Pilih Saham (Ketik nama/kode untuk mencari):",
+            "Pilih Saham:",
             stock_options,
             format_func=lambda x: f"{x[0]} — {x[1]}" if x[0] != "CUSTOM" else x[1],
             key="port_stock_selector"
         )
 
         if selected_stock[0] == "CUSTOM":
-            custom_sym = st.text_input("Ketik Kode Saham (contoh: BBCA.JK atau BBCA):", "BBCA.JK")
+            custom_sym = st.text_input("Ketik Kode Saham (contoh: BBCA.JK):", "BBCA.JK")
             chosen_ticker = normalize_ticker(custom_sym)
             try:
                 raw_df = fetch_stock_data(chosen_ticker, years=1)
@@ -294,13 +500,11 @@ with tab_portofolio:
                 default_price = 1000.0
         else:
             chosen_ticker = selected_stock[0]
-            # Ambil harga real-time langsung dari data screener jika tersedia
             default_price = None
             if not df_screener.empty and "Ticker" in df_screener.columns:
                 match = df_screener[df_screener["Ticker"] == chosen_ticker]
                 if not match.empty:
                     default_price = float(match.iloc[0]["Harga Terakhir (Rp)"])
-
             if default_price is None:
                 try:
                     raw_df = fetch_stock_data(chosen_ticker, years=1)
@@ -308,17 +512,9 @@ with tab_portofolio:
                 except Exception:
                     default_price = 1000.0
 
-        st.info(f"💡 Harga pasar resmi **{chosen_ticker}** saat ini: **Rp {default_price:,.0f}**")
-
-        in_price = st.number_input(
-            "Harga Beli Transaksi (Rp):",
-            min_value=1.0,
-            value=float(default_price),
-            step=10.0,
-            key=f"price_input_{chosen_ticker}"
-        )
-        in_lots = st.number_input("Jumlah Lot:", min_value=1, value=10, step=1, help="1 Lot = 100 Lembar Saham")
-
+        st.info(f"💵 Harga pasar resmi saat ini: **Rp {default_price:,.0f}**")
+        in_price = st.number_input("Harga Beli Transaksi (Rp):", min_value=1.0, value=float(default_price), step=10.0)
+        in_lots = st.number_input("Jumlah Lot:", min_value=1, value=10, step=1)
         total_calc = in_price * in_lots * 100
         st.caption(f"Estimasi Nilai Modal: **Rp {total_calc:,.0f}** ({in_lots} Lot)")
 
@@ -328,7 +524,13 @@ with tab_portofolio:
             st.rerun()
 
     with col_mon:
-        st.markdown("#### 📊 Status Saham yang Sedang Bapak Pegang")
+        col_port_head, col_port_btn = st.columns([2, 1.3])
+        with col_port_head:
+            st.markdown("#### 📊 Status Saham yang Sedang Anda Pegang")
+        with col_port_btn:
+            if st.button("🔄 Perbarui Evaluasi Posisi", key="btn_send_port_tg", type="secondary", use_container_width=True):
+                st.rerun()
+
         df_port = evaluate_active_portfolio(years=years_window)
 
         if not df_port.empty:
@@ -341,52 +543,56 @@ with tab_portofolio:
             r1, r2, r3 = st.columns(3)
             r1.metric("Total Modal Ditanam", f"Rp {total_invested:,.0f}")
             r2.metric("Nilai Portofolio Sekarang", f"Rp {total_current:,.0f}")
-            r3.metric(
-                "Keuntungan / Kerugian Berjalan",
-                f"Rp {total_pnl:,.0f}",
-                f"{total_pnl_pct:+.2f}%"
-            )
+            r3.metric("Keuntungan / Kerugian", f"Rp {total_pnl:+,.0f}", f"{total_pnl_pct:+.2f}%")
 
             st.markdown("---")
-
-            # Tampilkan kartu instruksi aksi untuk setiap saham
             for _, pos in df_port.iterrows():
                 badge_class = f"badge-action-{pos['Badge']}"
                 pnl_color = "#22c55e" if pos["Untung/Rugi (%)"] >= 0 else "#ef4444"
+                injury_val = int(pos.get("Injury Time (Hari)", 0))
+                injury_badge = f'<span style="background-color:#d97706; color:#ffffff; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700; margin-left:8px;">⚽ Injury Time: +{injury_val} Hari</span>' if injury_val > 0 else ''
 
-                st.markdown(f"""
-                <div class="metric-card" style="border-left: 5px solid {pnl_color};">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <span style="font-size:22px; font-weight:800; color:#ffffff;">{pos['Ticker']}</span>
-                            <span style="font-size:13px; color:#94a3b8; margin-left:8px;">({pos['Jumlah Lot']} Lot • Beli @ Rp {pos['Harga Beli (Rp)']:,.0f})</span>
-                        </div>
-                        <span class="{badge_class}">{pos['Instruksi Aksi']}</span>
-                    </div>
-                    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-top:12px;">
-                        <div>
-                            <div class="metric-label">Harga Pasar Terkini</div>
-                            <div style="font-size:18px; font-weight:700; color:#ffffff;">Rp {pos['Harga Sekarang (Rp)']:,.0f}</div>
-                        </div>
-                        <div>
-                            <div class="metric-label">Floating Cuan / Rugi</div>
-                            <div style="font-size:18px; font-weight:700; color:{pnl_color};">{pos['Untung/Rugi (%)']:+.2f}%</div>
-                            <small style="color:{pnl_color};">Rp {pos['Untung/Rugi (Rp)']:+,.0f}</small>
-                        </div>
-                        <div>
-                            <div class="metric-label">Target Take Profit (TP)</div>
-                            <div style="font-size:18px; font-weight:700; color:#38bdf8;">Rp {pos['Target TP (Rp)']:,.0f}</div>
-                        </div>
-                        <div>
-                            <div class="metric-label">Batas Cut-Loss (SL)</div>
-                            <div style="font-size:18px; font-weight:700; color:#ef4444;">Rp {pos['Batas SL (Rp)']:,.0f}</div>
-                        </div>
-                    </div>
-                    <div style="margin-top:10px; font-size:12px; color:#cbd5e1; background:rgba(255,255,255,0.04); padding:8px 12px; border-radius:6px;">
-                        📢 <b>Instruksi Sistem:</b> {pos['Catatan']}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                port_card_html = f"""<div class="metric-card" style="border-left: 5px solid {pnl_color};">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div>
+<span style="font-size:22px; font-weight:800; color:#ffffff;">{pos['Ticker']}</span>
+<span style="font-size:13px; color:#94a3b8; margin-left:8px;">({pos['Jumlah Lot']} Lot • Beli @ Rp {pos['Harga Beli (Rp)']:,.0f})</span>
+</div>
+<span class="{badge_class}">{pos['Instruksi Aksi']}</span>
+</div>
+<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-top:12px;">
+<div>
+<div class="metric-label">Harga Pasar Terkini</div>
+<div style="font-size:18px; font-weight:700; color:#ffffff;">Rp {pos['Harga Sekarang (Rp)']:,.0f}</div>
+</div>
+<div>
+<div class="metric-label">Floating Cuan / Rugi</div>
+<div style="font-size:18px; font-weight:700; color:{pnl_color};">{pos['Untung/Rugi (%)']:+.2f}%</div>
+<small style="color:{pnl_color};">Rp {pos['Untung/Rugi (Rp)']:+,.0f}</small>
+</div>
+<div>
+<div class="metric-label">Target Take Profit (TP)</div>
+<div style="font-size:18px; font-weight:700; color:#38bdf8;">Rp {pos['Target TP (Rp)']:,.0f}</div>
+</div>
+<div>
+<div class="metric-label">Batas Cut-Loss (SL)</div>
+<div style="font-size:18px; font-weight:700; color:#ef4444;">Rp {pos['Batas SL (Rp)']:,.0f}</div>
+</div>
+</div>
+<div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center; background:#0b0f19; padding:8px 12px; border-radius:6px; border:1px solid #334155; font-size:12px;">
+<div>
+⏱️ <b>Waktu Tunggu:</b> <span style="color:#38bdf8; font-weight:700;">{pos.get('Status Waktu', '')}</span>
+{injury_badge}
+</div>
+<div style="color:#94a3b8; font-size:11px;">
+Batas Normal: {pos.get('Batas Normal (Hari)', 5)} Hari | Total Maks: {pos.get('Total Hari Maksimal', 5)} Hari
+</div>
+</div>
+<div style="margin-top:8px; font-size:12px; color:#cbd5e1; background:rgba(255,255,255,0.04); padding:8px 12px; border-radius:6px;">
+📢 <b>Instruksi Sistem:</b> {pos['Catatan']}
+</div>
+</div>"""
+                st.markdown(port_card_html, unsafe_allow_html=True)
 
                 col_btn, _ = st.columns([1, 4])
                 with col_btn:
@@ -395,59 +601,13 @@ with tab_portofolio:
                         st.success(f"{pos['Ticker']} dihapus dari pantauan.")
                         st.rerun()
         else:
-            st.info("Belum ada saham yang dicatat di portofolio. Silakan masukkan saham yang Bapak beli melalui formulir di sebelah kiri.")
+            st.info("Belum ada posisi saham yang dicatat. Silakan masukkan posisi saham Bapak di formulir sebelah kiri.")
 
 # -------------------------------------------------------------
-# TAB 3: SELURUH PASAR & TABEL PERINGKAT LENGKAP
+# TAB 3: ANALISIS SAHAM INDIVIDUAL & VALIDASI ILMIAH
 # -------------------------------------------------------------
-with tab_screener:
-    st.subheader("📋 Peringkat Probabilitas Seluruh Watchlist Pasar")
-    st.caption("Menampilkan seluruh saham terdaftar beserta rincian target harga dan persentase keuntungan.")
-
-    if not df_screener.empty:
-        def highlight_signal_badge(val):
-            if "STRONG BUY" in val:
-                return 'background-color: rgba(34, 197, 94, 0.25); color: #22c55e; font-weight: bold;'
-            elif "BUY" in val:
-                return 'background-color: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: bold;'
-            elif "SELL" in val or "AVOID" in val:
-                return 'background-color: rgba(239, 68, 68, 0.2); color: #ef4444; font-weight: bold;'
-            return 'color: #94a3b8;'
-
-        display_cols = [
-            "Ticker", "Nama Emiten", "Harga Terakhir (Rp)", "Perubahan (%)",
-            "Probabilitas Naik (%)", "Rekomendasi",
-            "Target Besok (Rp)", "Estimasi Kenaikan Besok (%)",
-            "Take Profit / TP (Rp)", "Potensi TP (%)",
-            "Stop Loss / SL (Rp)", "Batas SL (%)", "Risk/Reward"
-        ]
-
-        styled_df = df_screener[display_cols].style.format({
-            "Harga Terakhir (Rp)": "Rp {:,.0f}",
-            "Perubahan (%)": "{:+.2f}%",
-            "Probabilitas Naik (%)": "{:.1f}%",
-            "Target Besok (Rp)": "Rp {:,.0f}",
-            "Estimasi Kenaikan Besok (%)": "{:+.2f}%",
-            "Take Profit / TP (Rp)": "Rp {:,.0f}",
-            "Potensi TP (%)": "{:+.1f}%",
-            "Stop Loss / SL (Rp)": "Rp {:,.0f}",
-            "Batas SL (%)": "{:+.1f}%"
-        })
-
-        styler_method = getattr(styled_df, "map", getattr(styled_df, "applymap", None))
-        if styler_method:
-            styled_df = styler_method(highlight_signal_badge, subset=['Rekomendasi'])
-
-        st.dataframe(styled_df, use_container_width=True, height=450)
-    else:
-        st.warning("Data screener kosong.")
-
-# -------------------------------------------------------------
-# TAB 4: ANALISIS CANDLESTICK & WALK-FORWARD BACKTEST
-# -------------------------------------------------------------
-with tab_detail:
-    st.subheader("📈 Analisis Mendalam Saham Individual & Validasi Ilmiah")
-    
+with tab_deepdive:
+    st.subheader("🔬 Analisis Mendalam Saham Individual & Validasi Walk-Forward")
     selected_tuple = st.selectbox(
         "Pilih Saham untuk Dianalisis:",
         active_watchlist,
@@ -464,54 +624,39 @@ with tab_detail:
         summary = get_latest_price_summary(df_raw)
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Harga Terakhir", f"Rp {summary['close']:,.0f}", f"{summary['pct_change']:+.2f}%")
+    c_close = round_to_idx_tick(summary['close'])
+    m_1lot = c_close * 100
+    c1.metric("Harga Terakhir", f"Rp {c_close:,.0f}", f"{summary['pct_change']:+.2f}%")
     c2.metric("Probabilitas Naik Besok", f"{pred['win_probability']}%", pred['signal'])
-    
-    pct_t = round(((pred['projected_close'] - summary['close']) / summary['close']) * 100, 2)
-    c3.metric("Estimasi Besok", f"Rp {pred['projected_close']:,.0f}", f"{pct_t:+.2f}% (Rentang: {pred['projected_range'][0]:,.0f}-{pred['projected_range'][1]:,.0f})")
-    
-    pct_tp = round(((pred['suggested_tp'] - summary['close']) / summary['close']) * 100, 1)
-    pct_sl = round(((pred['suggested_sl'] - summary['close']) / summary['close']) * 100, 1)
+    pct_t = round(((pred['projected_close'] - c_close) / c_close) * 100, 2) if c_close > 0 else 0.0
+    c3.metric("Estimasi Besok", f"Rp {pred['projected_close']:,.0f}", f"{pct_t:+.2f}%")
+    pct_tp = round(((pred['suggested_tp'] - c_close) / c_close) * 100, 1) if c_close > 0 else 0.0
+    pct_sl = round(((pred['suggested_sl'] - c_close) / c_close) * 100, 1) if c_close > 0 else 0.0
     c4.metric("Target TP / SL", f"TP: Rp {pred['suggested_tp']:,.0f} (+{pct_tp}%)", f"SL: Rp {pred['suggested_sl']:,.0f} ({pct_sl}%)")
 
-    # Candlestick Plotly 100 Hari Terakhir
-    st.markdown("#### Grafik Candlestick & Indikator Teknikal (100 Hari Terakhir)")
-    df_plot = df_feat.iloc[-100:].copy()
+    st.markdown(f"""
+    <div style="background:rgba(255,255,255,0.04); border:1px solid #334155; border-radius:8px; padding:10px 16px; margin:12px 0; font-size:12px;">
+        💼 <b>Modal 1 Lot (100 Lembar):</b> <b style="color:#38bdf8;">Rp {m_1lot:,.0f}</b> &nbsp;|&nbsp; 
+        📝 <b>Tiket Auto-Order Stockbit:</b> Buy @ <b style="color:#ffffff;">Rp {c_close:,.0f}</b> &bull; 
+        TP @ <b style="color:#22c55e;">Rp {pred['suggested_tp']:,.0f} (+{pct_tp}%)</b> &bull; 
+        SL @ <b style="color:#ef4444;">Rp {pred['suggested_sl']:,.0f} ({pct_sl}%)</b>
+    </div>
+    """, unsafe_allow_html=True)
 
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        vertical_spacing=0.08, subplot_titles=(f"Candlestick & Moving Averages — {selected_sym}", "Volume Perdagangan"),
-        row_heights=[0.75, 0.25]
-    )
-
+    # Chart Candlestick Plotly
+    df_chart = df_raw.tail(90).copy()
+    fig = go.Figure()
     fig.add_trace(go.Candlestick(
-        x=df_plot.index,
-        open=df_plot["Open"],
-        high=df_plot["High"],
-        low=df_plot["Low"],
-        close=df_plot["Close"],
-        name="OHLC",
-        increasing_line_color="#22c55e",
-        decreasing_line_color="#ef4444"
-    ), row=1, col=1)
-
-    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["SMA_20"], line=dict(color="#38bdf8", width=1.5), name="SMA 20"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["SMA_50"], line=dict(color="#f59e0b", width=1.5), name="SMA 50"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["BB_Upper"], line=dict(color="rgba(255,255,255,0.2)", dash="dot"), name="BB Upper"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["BB_Lower"], line=dict(color="rgba(255,255,255,0.2)", dash="dot"), name="BB Lower", fill='tonexty', fillcolor='rgba(255,255,255,0.03)'), row=1, col=1)
-
-    fig.add_trace(go.Bar(
-        x=df_plot.index, y=df_plot["Volume"],
-        marker_color=["#22c55e" if c >= o else "#ef4444" for c, o in zip(df_plot["Close"], df_plot["Open"])],
-        name="Volume"
-    ), row=2, col=1)
-
+        x=df_chart.index,
+        open=df_chart["Open"], high=df_chart["High"],
+        low=df_chart["Low"], close=df_chart["Close"],
+        name="Harga Saham (90 Hari)"
+    ))
     fig.update_layout(
+        title=f"Pergerakan Harga Saham {selected_sym} (90 Hari Terakhir)",
         template="plotly_dark",
-        xaxis_rangeslider_visible=False,
-        height=480,
-        margin=dict(l=20, r=20, t=30, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        height=400,
+        margin=dict(l=20, r=20, t=40, b=20)
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -537,6 +682,21 @@ with tab_detail:
         })
         st.dataframe(df_bt, use_container_width=True, height=280)
 
+# -------------------------------------------------------------
+# TAB 4: PERINGKAT SELURUH WATCHLIST
+# -------------------------------------------------------------
+with tab_all:
+    st.subheader("📋 Peringkat Probabilitas Seluruh Watchlist Pasar")
+    if not df_screener.empty:
+        display_cols = [
+            "Ticker", "Nama Emiten", "Harga Terakhir (Rp)", "Modal 1 Lot (Rp)", "Perubahan (%)",
+            "Probabilitas Naik (%)", "Rekomendasi",
+            "Target Besok (Rp)", "Estimasi Kenaikan Besok (%)",
+            "Take Profit / TP (Rp)", "Stop Loss / SL (Rp)", "Risk/Reward"
+        ]
+        cols_present = [c for c in display_cols if c in df_screener.columns]
+        st.dataframe(df_screener[cols_present], use_container_width=True, height=450)
+
 # Footer
 st.markdown("---")
-st.caption("The Trilaksana Framework — Modul 18: Quantitative Stock Prediction Suite • Dijalankan secara dinamis dengan Rolling-Window 10 Tahun.")
+st.caption("The Trilaksana Framework • Private Executive Terminal — saham.trilaksanamining.my.id • Hak Cipta Dr. Ir. Ahmad Raymond Trilaksana.")
