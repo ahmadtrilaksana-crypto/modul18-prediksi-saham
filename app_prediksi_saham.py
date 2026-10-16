@@ -530,6 +530,43 @@ with tab_portfolio:
             st.rerun()
 
     with col_mon:
+        # Pilihan Broker & Simulasi Fee Bursa
+        col_fee_chk, col_broker_box = st.columns([1.1, 1.9])
+        with col_fee_chk:
+            apply_fee = st.checkbox(
+                "🏷️ Terapkan Biaya Broker",
+                value=True,
+                key="cb_apply_broker_fee_pub",
+                help="Menghitung estimasi floating P/L bersih setelah komisi sekuritas dan pajak bursa."
+            )
+        with col_broker_box:
+            BROKER_FEES = {
+                "Stockbit / Sinarmas (Beli 0.15% | Jual 0.25%)": (0.15, 0.25),
+                "Mirae Asset Sekuritas (Beli 0.15% | Jual 0.25%)": (0.15, 0.25),
+                "IPOT - Indo Premier (Beli 0.19% | Jual 0.29%)": (0.19, 0.29),
+                "Mandiri Sekuritas - MOST (Beli 0.18% | Jual 0.28%)": (0.18, 0.28),
+                "BCA Sekuritas - BEST (Beli 0.18% | Jual 0.28%)": (0.18, 0.28),
+                "Ajaib Sekuritas (Beli 0.15% | Jual 0.25%)": (0.15, 0.25),
+                "BNI Sekuritas - BIONS (Beli 0.17% | Jual 0.27%)": (0.17, 0.27),
+                "Atur Persentase Manual (Custom %)": (0.15, 0.25),
+            }
+            if apply_fee:
+                chosen_broker = st.selectbox(
+                    "Pilih Sekuritas Anda:",
+                    list(BROKER_FEES.keys()),
+                    key="sb_broker_choice_pub"
+                )
+                if chosen_broker == "Atur Persentase Manual (Custom %)":
+                    c_f1, c_f2 = st.columns(2)
+                    with c_f1:
+                        fee_buy = st.number_input("Fee Beli (%):", value=0.15, step=0.01, format="%.2f", key="in_fb_pub")
+                    with c_f2:
+                        fee_sell = st.number_input("Fee Jual (%):", value=0.25, step=0.01, format="%.2f", key="in_fs_pub")
+                else:
+                    fee_buy, fee_sell = BROKER_FEES[chosen_broker]
+            else:
+                fee_buy, fee_sell = 0.0, 0.0
+
         col_port_head, col_port_btn = st.columns([2, 1.3])
         with col_port_head:
             st.markdown("#### 📊 Status Saham yang Sedang Anda Pegang")
@@ -537,7 +574,7 @@ with tab_portfolio:
             if st.button("🔄 Perbarui Evaluasi Posisi", key="btn_send_port_tg", type="secondary", use_container_width=True):
                 st.rerun()
 
-        df_port = evaluate_active_portfolio(years=years_window)
+        df_port = evaluate_active_portfolio(years=years_window, fee_buy_pct=fee_buy, fee_sell_pct=fee_sell)
 
         if not df_port.empty:
             total_invested = df_port["Total Modal (Rp)"].sum()
@@ -546,10 +583,12 @@ with tab_portfolio:
             total_pnl_pct = (total_pnl / total_invested) * 100 if total_invested > 0 else 0
 
             # Ringkasan Total Portofolio
+            lbl_modal = "Total Modal (Termasuk Fee)" if apply_fee else "Total Modal Ditanam (Gross)"
+            lbl_pnl = "Keuntungan / Kerugian (Net)" if apply_fee else "Keuntungan / Kerugian (Gross)"
             r1, r2, r3 = st.columns(3)
-            r1.metric("Total Modal Ditanam", f"Rp {total_invested:,.0f}")
+            r1.metric(lbl_modal, f"Rp {total_invested:,.0f}")
             r2.metric("Nilai Portofolio Sekarang", f"Rp {total_current:,.0f}")
-            r3.metric("Keuntungan / Kerugian", f"Rp {total_pnl:+,.0f}", f"{total_pnl_pct:+.2f}%")
+            r3.metric(lbl_pnl, f"Rp {total_pnl:+,.0f}", f"{total_pnl_pct:+.2f}%")
 
             st.markdown("---")
             for _, pos in df_port.iterrows():
@@ -557,6 +596,7 @@ with tab_portfolio:
                 pnl_color = "#22c55e" if pos["Untung/Rugi (%)"] >= 0 else "#ef4444"
                 injury_val = int(pos.get("Injury Time (Hari)", 0))
                 injury_badge = f'<span style="background-color:#d97706; color:#ffffff; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700; margin-left:8px;">⚽ Injury Time: +{injury_val} Hari</span>' if injury_val > 0 else ''
+                pnl_label = "Floating PnL (Net)" if apply_fee else "Floating Cuan / Rugi"
 
                 port_card_html = f"""<div class="metric-card" style="border-left: 5px solid {pnl_color};">
 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -572,7 +612,7 @@ with tab_portfolio:
 <div style="font-size:18px; font-weight:700; color:#ffffff;">Rp {pos['Harga Sekarang (Rp)']:,.0f}</div>
 </div>
 <div>
-<div class="metric-label">Floating Cuan / Rugi</div>
+<div class="metric-label">{pnl_label}</div>
 <div style="font-size:18px; font-weight:700; color:{pnl_color};">{pos['Untung/Rugi (%)']:+.2f}%</div>
 <small style="color:{pnl_color};">Rp {pos['Untung/Rugi (Rp)']:+,.0f}</small>
 </div>
