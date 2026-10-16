@@ -20,7 +20,7 @@ import urllib.parse
 from datetime import datetime, date
 from typing import Dict, Any, Optional
 
-CLOUD_API_URL = "https://script.google.com/macros/s/AKfycbxSSQexztexwacy7pI1febIt8mokXSE9DZa_ik70-XONV4DG2opFuUnIyvmQo9FKoKj1Q/exec"
+CLOUD_API_URL = "https://script.google.com/macros/s/AKfycbz12Z4BSCnLAwf4kmcOoUwbZyUYD_Cxq0kxVNTQ9b1XKWjt-4dLd3-ReO5aL1gkYw_SjA/exec"
 APP_ID = 18
 APP_NAME = "Modul 18: Quantitative Stock Price Prediction & Dynamic Screener Suite"
 GRACE_PERIOD_DAYS = 7
@@ -437,7 +437,7 @@ def check_license(silent_refresh: bool = True) -> Dict[str, Any]:
     online_success = False
     if silent_refresh:
         try:
-            ping = _http_get(f"{CLOUD_API_URL}?action=ping", timeout=3)
+            ping = _http_get(f"{CLOUD_API_URL}?action=ping", timeout=10)
             if ping and ping.get("status") == "success":
                 cached["lastVerifiedOnline"] = now_ts
                 cached["lastVerifiedDate"] = datetime.fromtimestamp(now_ts).strftime("%Y-%m-%d %H:%M:%S")
