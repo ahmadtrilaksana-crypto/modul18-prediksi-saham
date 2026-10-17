@@ -275,7 +275,9 @@ with tab_radar:
             raw_portfolio = load_portfolio()
             for pos_item in raw_portfolio:
                 if pos_item.get("status", "HOLDING").upper() == "HOLDING":
-                    held_tickers.add(pos_item["symbol"])
+                    sym_val = pos_item.get("ticker") or pos_item.get("symbol")
+                    if sym_val:
+                        held_tickers.add(sym_val)
         except Exception:
             pass
 
@@ -481,8 +483,15 @@ with tab_radar:
 # TAB 2: PORTOFOLIO PRIBADI & REAL-TIME TRACKING
 # -------------------------------------------------------------
 with tab_portfolio:
-    st.subheader("💼 Portofolio Pribadi & Alarm Keputusan Jual (TP / SL)")
-    st.markdown("Catat posisi saham riil Bapak di sini. Portofolio ini terisolasi secara privat dan aman.")
+    st.subheader("💼 Portofolio Simulasi & Alarm Keputusan Jual (TP / SL)")
+    st.info(
+        "🛡️ **Jaminan Kerahasiaan & Privasi 100% (Client-Side Session):** "
+        "Simulasi portofolio ini berjalan murni di sesi peramban (*browser session*) Anda secara terisolasi. "
+        "Kami **tidak pernah menyimpan** data aset finansial Anda di server cloud demi menjaga kerahasiaan Anda. "
+        "Jika peramban ditutup, data otomatis terhapus. "
+        "Untuk penyimpanan portofolio permanen dan terisolasi di komputer pribadi, "
+        "silakan gunakan versi **Desktop .EXE**."
+    )
 
     col_add, col_mon = st.columns([1, 2.2])
 
@@ -647,7 +656,7 @@ Batas Normal: {pos.get('Batas Normal (Hari)', 5)} Hari | Total Maks: {pos.get('T
                         st.success(f"{pos['Ticker']} dihapus dari pantauan.")
                         st.rerun()
         else:
-            st.info("Belum ada posisi saham yang dicatat. Silakan masukkan posisi saham Bapak di formulir sebelah kiri.")
+            st.info("Belum ada posisi saham yang dicatat. Silakan masukkan posisi saham Anda di formulir sebelah kiri untuk memulai simulasi.")
 
 # -------------------------------------------------------------
 # TAB 3: ANALISIS SAHAM INDIVIDUAL & VALIDASI ILMIAH
