@@ -13,8 +13,30 @@ from core.rolling_model import DynamicStockPredictor, round_to_idx_tick, calcula
 
 PORTFOLIO_FILE = os.path.join(get_data_dir(), "active_portfolio.json")
 
+def is_streamlit_running() -> bool:
+    """Mendeteksi apakah kode sedang dieksekusi di dalam runner Streamlit."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        return get_script_run_ctx() is not None
+    except Exception:
+        return False
+
 def load_portfolio() -> List[Dict]:
-    """Memuat daftar kepemilikan saham dari file lokal."""
+    """
+    Memuat daftar kepemilikan saham:
+    - Di lingkungan Streamlit publik: Menggunakan st.session_state (isolasi per sesi peramban pengunjung).
+      Sehingga setiap pengunjung 100% mandiri, tidak saling melihat, dan otomatis bersih saat tab ditutup.
+    - Di luar Streamlit (CLI/Desktop Offline): Membaca berkas lokal active_portfolio.json.
+    """
+    if is_streamlit_running():
+        try:
+            import streamlit as st
+            if "public_session_portfolio" not in st.session_state:
+                st.session_state["public_session_portfolio"] = []
+            return list(st.session_state["public_session_portfolio"])
+        except Exception:
+            pass
+
     if not os.path.exists(PORTFOLIO_FILE):
         return []
     try:
@@ -24,7 +46,19 @@ def load_portfolio() -> List[Dict]:
         return []
 
 def save_portfolio(portfolio: List[Dict]) -> None:
-    """Menyimpan daftar kepemilikan saham ke file lokal."""
+    """
+    Menyimpan daftar kepemilikan saham:
+    - Di lingkungan Streamlit publik: Disimpan secara aman di memori peramban pengunjung (st.session_state).
+    - Di luar Streamlit: Disimpan ke file lokal active_portfolio.json.
+    """
+    if is_streamlit_running():
+        try:
+            import streamlit as st
+            st.session_state["public_session_portfolio"] = list(portfolio)
+            return
+        except Exception:
+            pass
+
     with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
         json.dump(portfolio, f, indent=2, ensure_ascii=False)
 
