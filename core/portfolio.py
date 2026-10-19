@@ -13,30 +13,8 @@ from core.rolling_model import DynamicStockPredictor, round_to_idx_tick, calcula
 
 PORTFOLIO_FILE = os.path.join(get_data_dir(), "active_portfolio.json")
 
-def is_streamlit_running() -> bool:
-    """Mendeteksi apakah kode sedang dieksekusi di dalam runner Streamlit."""
-    try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
-        return get_script_run_ctx() is not None
-    except Exception:
-        return False
-
 def load_portfolio() -> List[Dict]:
-    """
-    Memuat daftar kepemilikan saham:
-    - Di lingkungan Streamlit publik: Menggunakan st.session_state (isolasi per sesi peramban pengunjung).
-      Sehingga setiap pengunjung 100% mandiri, tidak saling melihat, dan otomatis bersih saat tab ditutup.
-    - Di luar Streamlit (CLI/Desktop Offline): Membaca berkas lokal active_portfolio.json.
-    """
-    if is_streamlit_running():
-        try:
-            import streamlit as st
-            if "public_session_portfolio" not in st.session_state:
-                st.session_state["public_session_portfolio"] = []
-            return list(st.session_state["public_session_portfolio"])
-        except Exception:
-            pass
-
+    """Memuat daftar kepemilikan saham dari file lokal."""
     if not os.path.exists(PORTFOLIO_FILE):
         return []
     try:
@@ -46,37 +24,28 @@ def load_portfolio() -> List[Dict]:
         return []
 
 def save_portfolio(portfolio: List[Dict]) -> None:
-    """
-    Menyimpan daftar kepemilikan saham:
-    - Di lingkungan Streamlit publik: Disimpan secara aman di memori peramban pengunjung (st.session_state).
-    - Di luar Streamlit: Disimpan ke file lokal active_portfolio.json.
-    """
-    if is_streamlit_running():
-        try:
-            import streamlit as st
-            st.session_state["public_session_portfolio"] = list(portfolio)
-            return
-        except Exception:
-            pass
-
+    """Menyimpan daftar kepemilikan saham ke file lokal."""
     with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
         json.dump(portfolio, f, indent=2, ensure_ascii=False)
 
-def add_position(ticker: str, buy_price: float, lots: int = 10, buy_date: str = None) -> bool:
-    """Menambahkan transaksi beli saham baru ke portofolio."""
+def add_position(ticker: str, buy_price: float, lots: int = 10, buy_date: str = None, initial_max_days: int = None, target_tp: float = None, stop_loss: float = None) -> bool:
+    """Menambahkan transaksi beli saham baru ke portofolio dengan mengunci durasi kontrak awal."""
     sym = normalize_ticker(ticker)
     if not buy_date:
         buy_date = datetime.date.today().strftime("%Y-%m-%d")
 
     portfolio = load_portfolio()
-    # Buat entri posisi baru
+    # Buat entri posisi baru dengan kontrak awal terkunci
     new_entry = {
         "id": f"{sym}_{int(datetime.datetime.now().timestamp())}",
         "ticker": sym,
         "buy_price": float(buy_price),
         "lots": int(lots),
         "shares": int(lots) * 100,
-        "buy_date": buy_date
+        "buy_date": buy_date,
+        "initial_max_days": int(initial_max_days) if initial_max_days else None,
+        "target_tp": float(target_tp) if target_tp else None,
+        "stop_loss": float(stop_loss) if stop_loss else None
     }
     portfolio.append(new_entry)
     save_portfolio(portfolio)
@@ -143,8 +112,9 @@ def evaluate_active_portfolio(years: int = 2, fee_buy_pct: float = 0.0, fee_sell
             sl_p = round_to_idx_tick(pred["suggested_sl"])
             atr_val = pred.get("atr_volatility", current_p * 0.02)
 
-            # Hitung Waktu Normal & Injury Time
-            max_normal_days = int(pred.get("max_holding_days", 5))
+            # Hitung Waktu Normal & Injury Time (KONTRAK TERKUNCI)
+            # Prioritaskan durasi kontrak awal (initial_max_days) yang disepakati saat transaksi beli
+            max_normal_days = int(item.get("initial_max_days") or item.get("max_holding_days") or pred.get("max_holding_days", 7))
             remaining_normal_days = max_normal_days - days_held
 
             injury_calc = calculate_injury_time(
